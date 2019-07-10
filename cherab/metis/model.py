@@ -1,19 +1,18 @@
-from cherab.metis import read_hdf5
+import numpy as np
 from cherab.core.utility import RecursiveDict
-
 from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, interp1d
 
-import numpy as np
+from cherab.metis import read_hdf5
+
 
 class METISModel():
 
-    def __init__(self, filepath = None):
+    def __init__(self, filepath=None):
 
         self._flush_properties()
 
         if filepath is not None:
             self.filepath = filepath
-
 
     def _flush_properties(self):
         """
@@ -23,8 +22,8 @@ class METISModel():
         self._zerod_data = {}
         self._profile0d_data = {}
 
-        self._zerod_interpolator = RecursiveDict() # holds interpolator for zerod dataset
-        self._profile1d_interpolator = RecursiveDict() #holds interpolators for profile1d dataset
+        self._zerod_interpolator = RecursiveDict()  # holds interpolator for zerod dataset
+        self._profile1d_interpolator = RecursiveDict()  # holds interpolators for profile1d dataset
         self._profile_shape = None
         self._time_shape = None
 
@@ -39,7 +38,6 @@ class METISModel():
         argmin = vals.argmin()
 
         return argmin
-
 
     def update_data(self):
         """
@@ -61,8 +59,7 @@ class METISModel():
         # calculate normalized poloidal flux and add it to profiles
         profil0d["psin"] = np.zeros_like(profil0d["psi"])
         for index, value in enumerate(profil0d["psi"].T):
-
-            profil0d["psin"][:, index] = (value - value.min())/(value.max() - value.min())
+            profil0d["psin"][:, index] = (value - value.min()) / (value.max() - value.min())
 
         self._time_shape = profil0d["psi"].shape[1]
         self._profile_shape = profil0d["psi"].shape[0]
@@ -105,10 +102,9 @@ class METISModel():
         :return:
         """
 
-
         if not quantity in list(self._profile0d_data.keys()):
-            raise ValueError("quantity {0}, not in zerod METIS group: {1}".format(quantity, self._profile0d_data.keys()))
-
+            raise ValueError(
+                "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._profile0d_data.keys()))
 
         if time:
             time_arg = self._get_nearest_index(time, self.time)
@@ -150,15 +146,16 @@ class METISModel():
         :param kind: 'cubic' or 'linear', default='cubic', degree of the interpolator
         :return: float
         """
-        #check validity of the quantity requested
+        # check validity of the quantity requested
         if not quantity in list(self._zerod_data.keys()):
-            raise ValueError("{0} passed as quantity, but has to be one of: {1}".format(quantity, self._zerod_data.keys()))
+            raise ValueError(
+                "{0} passed as quantity, but has to be one of: {1}".format(quantity, self._zerod_data.keys()))
 
-        #return interpolated values and create interpolator if missing
+        # return interpolated values and create interpolator if missing
         try:
             value = self._zerod_interpolator[quantity][kind](time)
         except TypeError:
-            #construct the right interpolator
+            # construct the right interpolator
             if kind == "cubic" or kind == "linear":
                 self._zerod_interpolator[quantity][kind] = interp1d(self.time, self._zerod_data[quantity], kind=kind)
             else:
@@ -168,7 +165,7 @@ class METISModel():
 
         return value
 
-    def interpolate_profile1d(self, quantity, time, kind ="cubic",**free_variable ):
+    def interpolate_profile1d(self, quantity, time, kind="cubic", **free_variable):
         """
         Attempts to interpolate requested quantity for the specified free variable and time.
         :param quantity: str, a valid profile1d quantity
@@ -180,11 +177,12 @@ class METISModel():
         :return:
         """
 
-        #check validity of the quantity requested
+        # check validity of the quantity requested
         if not quantity in list(self._profile0d_data.keys()):
-            raise ValueError("quantity {0}, not in zerod METIS group: {1}".format(quantity, self._profile0d_data.keys()))
+            raise ValueError(
+                "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._profile0d_data.keys()))
 
-        #prepare free variable and check validity
+        # prepare free variable and check validity
         if not free_variable:
             free_variable_name = "psin"
             free_variable_data = np.linspace(0, 1, self._profile_shape, endpoint=True)
@@ -193,23 +191,27 @@ class METISModel():
             free_variable_data = free_variable[free_variable_name]
 
         if not free_variable_name in list(self._profile0d_data.keys()):
-            raise ValueError("quantity {0}, not in zerod METIS group: {1}".format(free_variable_name, self._profile0d_data.keys()))
+            raise ValueError(
+                "quantity {0}, not in zerod METIS group: {1}".format(free_variable_name, self._profile0d_data.keys()))
 
-        #return interpolated values and create interpolator if missing
+        # return interpolated values and create interpolator if missing
         try:
             value = self._profile1d_interpolator[quantity][free_variable_name][kind](time, free_variable_data).squeeze()
         except TypeError:
-            #prepare values for the interpolator initialization
+            # prepare values for the interpolator initialization
             time_vector = np.tile(self.time, self._profile_shape)[:, np.newaxis]
             fv_vector = self._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
             v_vector = self._profile0d_data[quantity].flatten()
             pnts = np.concatenate((time_vector, fv_vector), axis=1)
-            #construct the right interpolator
+            # construct the right interpolator
             if kind == "cubic":
-                self._profile1d_interpolator[quantity][free_variable_name][kind] = CloughTocher2DInterpolator(pnts, v_vector, rescale=True)
+                self._profile1d_interpolator[quantity][free_variable_name][kind] = CloughTocher2DInterpolator(pnts,
+                                                                                                              v_vector,
+                                                                                                              rescale=True)
             elif kind == "linear":
-                self._profile1d_interpolator[quantity][free_variable_name][kind] = LinearNDInterpolator(pnts, v_vector, rescale=True)
-            #evaluate it
+                self._profile1d_interpolator[quantity][free_variable_name][kind] = LinearNDInterpolator(pnts, v_vector,
+                                                                                                        rescale=True)
+            # evaluate it
             value = self._profile1d_interpolator[quantity][free_variable_name][kind](time, free_variable_data).squeeze()
 
         return value
