@@ -57,9 +57,8 @@ class METISModel():
         self._time = zerod["temps"]
 
         # calculate normalized poloidal flux and add it to profiles
-        profil0d["psin"] = np.zeros_like(profil0d["psi"])
-        for index, value in enumerate(profil0d["psi"].T):
-            profil0d["psin"][:, index] = (value - value.min()) / (value.max() - value.min())
+        profil0d["psin"] = np.divide((profil0d["psi"] - profil0d["psi"].min(axis=0)),
+                                     profil0d["psi"].max(axis=0) - profil0d["psi"].min(axis=0))
 
         self._time_shape = profil0d["psi"].shape[1]
         self._profile_shape = profil0d["psi"].shape[0]
