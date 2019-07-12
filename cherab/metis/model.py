@@ -24,8 +24,6 @@ class METISModel():
 
         self._zerod_interpolator = RecursiveDict()  # holds interpolator for zerod dataset
         self._profile1d_interpolator = RecursiveDict()  # holds interpolators for profile1d dataset
-        self._profile_shape = None
-        self._time_shape = None
 
     def _get_nearest_index(self, value, vector):
         """
@@ -60,10 +58,16 @@ class METISModel():
         profil0d["psin"] = np.divide((profil0d["psi"] - profil0d["psi"].min(axis=0)),
                                      profil0d["psi"].max(axis=0) - profil0d["psi"].min(axis=0))
 
-        self._time_shape = profil0d["psi"].shape[1]
-        self._profile_shape = profil0d["psi"].shape[0]
         self._zerod_data = zerod
         self._profile0d_data = profil0d
+
+    @property
+    def _time_shape(self):
+        return self._zerod_data["temps"].shape[0]
+
+    @property
+    def _profile_shape(self):
+        return self._profile0d_data["psi"].shape[0]
 
     @property
     def zerod_list(self):
