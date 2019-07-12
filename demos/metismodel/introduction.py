@@ -12,8 +12,8 @@ metis = generate_metis_example()
 time_axis = np.linspace(metis.time.min(), metis.time.max(), 1000)
 
 #interpolate_zerod returns array of interpolated values for specified quantity and times
-ip_interpolated = metis.interpolate_zerod("ip", time_axis)
-p_nbi_interpolated = metis.interpolate_zerod("pnbi", time_axis)
+ip_interpolated = metis.zerod_interpolate("ip", time_axis)
+p_nbi_interpolated = metis.zerod_interpolate("pnbi", time_axis)
 
 #interpolated plasma current
 asdfx, ax = plt.subplots()
@@ -33,14 +33,14 @@ time_slice = 0.765
 
 
 #profile1d returns the closest time slice of a specified quantity
-psi_slice1 = metis.profile1d_nearest("psi", time_slice1)
-psi_slice2 = metis.profile1d_nearest("psi", time_slice1)
+psi_slice1 = metis.profile1d("psi", time_slice1)
+psi_slice2 = metis.profile1d("psi", time_slice1)
 
-psin_slice1 = metis.profile1d_nearest("psin", time_slice1)
-psin_slice2 = metis.profile1d_nearest("psin", time_slice2)
+psin_slice1 = metis.profile1d("psin", time_slice1)
+psin_slice2 = metis.profile1d("psin", time_slice2)
 
-te_slice1 = metis.profile1d_nearest("tep", time_slice1)
-te_slice2 = metis.profile1d_nearest("tep", time_slice2)
+te_slice1 = metis.profile1d("tep", time_slice1)
+te_slice2 = metis.profile1d("tep", time_slice2)
 
 #profile1d interpolates 1D profile of requested quantity onto a specified "free variable" for a given time
 psi_slice = metis.profile1d_interpolate("psi", time_slice)

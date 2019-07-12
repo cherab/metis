@@ -96,7 +96,7 @@ class METISModel:
 
         return self._zerod_data[quantity]
 
-    def profile1d_nearest(self, quantity, time=None):
+    def profile1d(self, quantity, time=None):
         """
         Returns array of values for the specified quantity from profiles1d dataset. If time is not specified, 2D
         array with all time slices is returned. If time is specified a the nearest time slice is returned as 1D array.
@@ -141,7 +141,7 @@ class METISModel:
         """
         return self._zerod_data["temps"]
 
-    def interpolate_zerod(self, quantity, time, kind="cubic"):
+    def zerod_interpolate(self, quantity, time, kind="cubic"):
         """
         Interpolates quantity for given time value. The quantity name has to be a valid METIS 0D quantity.
         :param quantity: str, a valid zerod quantity
