@@ -33,24 +33,24 @@ time_slice = 0.765
 
 
 #profile1d returns the closest time slice of a specified quantity
-psi_slice1 = metis.profile1d("psi", time_slice1)
-psi_slice2 = metis.profile1d("psi", time_slice1)
+psi_slice1 = metis.profile1d_nearest("psi", time_slice1)
+psi_slice2 = metis.profile1d_nearest("psi", time_slice1)
 
-psin_slice1 = metis.profile1d("psin", time_slice1)
-psin_slice2 = metis.profile1d("psin", time_slice2)
+psin_slice1 = metis.profile1d_nearest("psin", time_slice1)
+psin_slice2 = metis.profile1d_nearest("psin", time_slice2)
 
-te_slice1 = metis.profile1d("tep", time_slice1)
-te_slice2 = metis.profile1d("tep", time_slice2)
+te_slice1 = metis.profile1d_nearest("tep", time_slice1)
+te_slice2 = metis.profile1d_nearest("tep", time_slice2)
 
 #profile1d interpolates 1D profile of requested quantity onto a specified "free variable" for a given time
-psi_slice = metis.interpolate_profile1d("psi", time_slice)
+psi_slice = metis.profile1d_interpolate("psi", time_slice)
 psi_slice = np.linspace(psi_slice.min(), psi_slice.max(), 100)
 
 psin_slice = np.linspace(0, 1, 30)
 
 #free variable is determined by the parameter name and passed values
-te_slice_psi = metis.interpolate_profile1d("tep", time_slice, psi=psi_slice)
-te_slice_psin = metis.interpolate_profile1d("tep", time_slice, psin=psin_slice)
+te_slice_psi = metis.profile1d_interpolate("tep", time_slice, psi=psi_slice)
+te_slice_psin = metis.profile1d_interpolate("tep", time_slice, psin=psin_slice)
 
 plot_tep_psi = plt.subplots()
 ax = plot_tep_psi[1]

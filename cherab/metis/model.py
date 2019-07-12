@@ -5,7 +5,7 @@ from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, 
 from cherab.metis import read_hdf5
 
 
-class METISModel():
+class METISModel:
 
     def __init__(self, filepath=None):
 
@@ -96,7 +96,7 @@ class METISModel():
 
         return self._zerod_data[quantity]
 
-    def profile1d(self, quantity, time=None):
+    def profile1d_nearest(self, quantity, time=None):
         """
         Returns array of values for the specified quantity from profiles1d dataset. If time is not specified, 2D
         array with all time slices is returned. If time is specified a the nearest time slice is returned as 1D array.
@@ -168,7 +168,7 @@ class METISModel():
 
         return value
 
-    def interpolate_profile1d(self, quantity, time, kind="cubic", **free_variable):
+    def profile1d_interpolate(self, quantity, time, kind="cubic", **free_variable):
         """
         Attempts to interpolate requested quantity for the specified free variable and time.
         :param quantity: str, a valid profile1d quantity
@@ -228,3 +228,14 @@ class METISModel():
             value = self._profile1d_interpolator[quantity][free_variable_name][kind](time, free_variable_data).squeeze()
 
         return value
+
+    def equilibrium_map2d(self, equilibrium, quantity, time, value_outside_lcfs=0.0):
+
+        return equilibrium.map2d((self.profile1d_interpolate("psin", time), self.profile1d_interpolate(quantity, time)),
+                                 value_outside_lcfs)
+
+    def equilibrium_map3d(self, equilibrium, quantity, time, value_outside_lcfs=0.0):
+
+        return equilibrium.map3d((self.profile1d_interpolate("psin", time), self.profile1d_interpolate(quantity, time)),
+                                 value_outside_lcfs)
+
