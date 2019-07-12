@@ -24,8 +24,6 @@ class METISModel():
 
         self._zerod_interpolator = RecursiveDict()  # holds interpolator for zerod dataset
         self._profile1d_interpolator = RecursiveDict()  # holds interpolators for profile1d dataset
-        self._profile_shape = None
-        self._time_shape = None
 
     def _get_nearest_index(self, value, vector):
         """
@@ -57,14 +55,19 @@ class METISModel():
         self._time = zerod["temps"]
 
         # calculate normalized poloidal flux and add it to profiles
-        profil0d["psin"] = np.zeros_like(profil0d["psi"])
-        for index, value in enumerate(profil0d["psi"].T):
-            profil0d["psin"][:, index] = (value - value.min()) / (value.max() - value.min())
+        profil0d["psin"] = np.divide((profil0d["psi"] - profil0d["psi"].min(axis=0)),
+                                     profil0d["psi"].max(axis=0) - profil0d["psi"].min(axis=0))
 
-        self._time_shape = profil0d["psi"].shape[1]
-        self._profile_shape = profil0d["psi"].shape[0]
         self._zerod_data = zerod
         self._profile0d_data = profil0d
+
+    @property
+    def _time_shape(self):
+        return self._zerod_data["temps"].shape[0]
+
+    @property
+    def _profile_shape(self):
+        return self._profile0d_data["psi"].shape[0]
 
     @property
     def zerod_list(self):
@@ -200,8 +203,18 @@ class METISModel():
         except TypeError:
             # prepare values for the interpolator initialization
             time_vector = np.tile(self.time, self._profile_shape)[:, np.newaxis]
-            fv_vector = self._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
-            v_vector = self._profile0d_data[quantity].flatten()
+
+           # construct free variable 1D array of values
+            if not free_variable_name == "xli": #get time-space profiles into 1D free variable array
+                fv_vector = self._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
+            else: #xli is only 1D array and has to be expanded to fit rest of the interpolation
+                fv_vector = np.tile(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+
+            if not quantity == "xli": #get time-space profiles into 1D free variable array
+                v_vector = self._profile0d_data[quantity].flatten()
+            else:
+                v_vector = np.tile(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+
             pnts = np.concatenate((time_vector, fv_vector), axis=1)
             # construct the right interpolator
             if kind == "cubic":
