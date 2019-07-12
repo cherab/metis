@@ -203,8 +203,18 @@ class METISModel():
         except TypeError:
             # prepare values for the interpolator initialization
             time_vector = np.tile(self.time, self._profile_shape)[:, np.newaxis]
-            fv_vector = self._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
-            v_vector = self._profile0d_data[quantity].flatten()
+
+           # construct free variable 1D array of values
+            if not free_variable_name == "xli": #get time-space profiles into 1D free variable array
+                fv_vector = self._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
+            else: #xli is only 1D array and has to be expanded to fit rest of the interpolation
+                fv_vector = np.tile(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+
+            if not quantity == "xli": #get time-space profiles into 1D free variable array
+                v_vector = self._profile0d_data[quantity].flatten()
+            else:
+                v_vector = np.tile(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+
             pnts = np.concatenate((time_vector, fv_vector), axis=1)
             # construct the right interpolator
             if kind == "cubic":
