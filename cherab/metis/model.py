@@ -1,5 +1,7 @@
 import numpy as np
 from cherab.core.utility import RecursiveDict
+from cherab.tools.equilibrium.efit import EFITEquilibrium
+
 from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, interp1d
 
 from cherab.metis import read_hdf5
@@ -229,12 +231,29 @@ class METISModel:
 
         return value
 
-    def equilibrium_map2d(self, equilibrium, quantity, time, value_outside_lcfs=0.0):
+    def equilibrium_map2d(self, equilibrium:EFITEquilibrium, quantity, time, value_outside_lcfs=0.0):
+        """
+        Generated 2d interpolator using EFITEquilibrium.map2d function
 
+        :param equilibrium: Cherab EFITEquilibrium time slice
+        :param quantity: Physical quantity from profiles1d provided by METIS
+        :param time: time to interpolate the profile for
+        :param value_outside_lcfs: Value to return in point is outside lcfs
+        :return:
+        """
         return equilibrium.map2d((self.profile1d_interpolate("psin", time), self.profile1d_interpolate(quantity, time)),
                                  value_outside_lcfs)
 
     def equilibrium_map3d(self, equilibrium, quantity, time, value_outside_lcfs=0.0):
+        """
+        Generate 3d interpolator using EFITEquilibrium.map3d function
+
+        :param equilibrium: Cherab EFITEquilibrium time slice
+        :param quantity: Physical quantity from profiles1d provided by METIS
+        :param time: time to interpolate the profile for
+        :param value_outside_lcfs: Value to return in point is outside lcfs
+        :return:
+        """
 
         return equilibrium.map3d((self.profile1d_interpolate("psin", time), self.profile1d_interpolate(quantity, time)),
                                  value_outside_lcfs)
