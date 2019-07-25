@@ -449,10 +449,11 @@ class METISModel:
 
         t_i = self.equilibrium_map3d("tip", time, interpolate=interpolate)
 
-        h0_hot_density = self.equilibrium_map3d("n0", time, interpolate=interpolate)
-        h0_hot_distribution = Maxwellian(h0_hot_density, t_i, plasma_rotation,
-                                         hydrogen_isotope.atomic_weight * atomic_mass)
-        plasma.composition.add(Species(hydrogen_isotope, 0, h0_hot_distribution))
+        #todo:uncomment when more distributions of a same species can be put into plasma composition
+        #h0_hot_density = self.equilibrium_map3d("n0", time, interpolate=interpolate)
+        #h0_hot_distribution = Maxwellian(h0_hot_density, t_i, plasma_rotation,
+        #                                 hydrogen_isotope.atomic_weight * atomic_mass)
+        #plasma.composition.add(Species(hydrogen_isotope, 0, h0_hot_distribution))
 
         h0_cold_density = self.equilibrium_map3d("n0m", time, interpolate=interpolate)
         h0_cold_temperature = Constant3D(0)
@@ -475,7 +476,7 @@ class METISModel:
 
             helium_balance = from_elementdensity(atomic_data, helium, he_density, n_e, t_e,
                                                  tcx_donor=lookup_element("hydrogen"), tcx_donor_charge=0,
-                                                 tcx_donor_n=n_h0_cold + n_h0_cold)
+                                                 tcx_donor_n=n_h0_cold)
 
             for charge, dens in helium_balance.items():
                 dist = Maxwellian(dens, t_i, plasma_rotation, helium.atomic_weight * atomic_mass)
@@ -489,7 +490,7 @@ class METISModel:
 
             balance = from_elementdensity(atomic_data, main_impurity, main_density, n_e, t_e,
                                           tcx_donor=lookup_element("hydrogen"), tcx_donor_charge=0,
-                                          tcx_donor_n=n_h0_cold + n_h0_cold)
+                                          tcx_donor_n=n_h0_cold)
 
             for charge, dens in balance.items():
                 dist = Maxwellian(dens, t_i, plasma_rotation, main_impurity.atomic_weight * atomic_mass)
