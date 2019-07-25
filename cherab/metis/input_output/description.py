@@ -1,6 +1,6 @@
 # data description obtained from the METIS  documentation. It will be neccessary to keep this up with the code.
 
-zerod = {"xli": 'radial normalized coordinate (Lao coordinate ~ r/a, normalized to 1 at the edge).',
+profil0d = {"xli": 'radial normalized coordinate (Lao coordinate ~ r/a, normalized to 1 at the edge).',
          "Rsepa": 'radial coordinate of the LCMS points (m)',
          "Zsepa": 'vertical coordinate of the LCMS points (m)',
          "nbishape_el": 'NBI power deposition on electrons shape; reserved to an internal used only',
@@ -105,7 +105,7 @@ zerod = {"xli": 'radial normalized coordinate (Lao coordinate ~ r/a, normalized 
          "rtor": 'toroidal rotation moment density (kg m^-1 s^-1)',
          "nwp": 'density of W when tungsten effects are taking into account (m^-3)'}
 
-profil0d = {"nbar_nat": 'natural density (m^{-3})',
+zerod = {"nbar_nat": 'natural density (m^{-3})',
             "eddy_current": 'Eddy current in passive structure for breakdown description (A)',
             "flux_edge_cor": 'Poloidal flux modification of reference cons.flux due to eddy current (Wb/ (2*pi))',
             "firstorb_nbi": 'fraction of NBI power lost due to fast ion first orbit loss',

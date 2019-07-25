@@ -12,8 +12,8 @@ metis = generate_metis_example()
 time_axis = np.linspace(metis.time.min(), metis.time.max(), 1000)
 
 #interpolate_zerod returns array of interpolated values for specified quantity and times
-ip_interpolated = metis.interpolate_zerod("ip", time_axis)
-p_nbi_interpolated = metis.interpolate_zerod("pnbi", time_axis)
+ip_interpolated = metis.zerod_interpolate("ip", time_axis)
+p_nbi_interpolated = metis.zerod_interpolate("pnbi", time_axis)
 
 #interpolated plasma current
 asdfx, ax = plt.subplots()
@@ -43,14 +43,14 @@ te_slice1 = metis.profile1d("tep", time_slice1)
 te_slice2 = metis.profile1d("tep", time_slice2)
 
 #profile1d interpolates 1D profile of requested quantity onto a specified "free variable" for a given time
-psi_slice = metis.interpolate_profile1d("psi", time_slice)
+psi_slice = metis.profile1d_interpolate("psi", time_slice)
 psi_slice = np.linspace(psi_slice.min(), psi_slice.max(), 100)
 
 psin_slice = np.linspace(0, 1, 30)
 
 #free variable is determined by the parameter name and passed values
-te_slice_psi = metis.interpolate_profile1d("tep", time_slice, psi=psi_slice)
-te_slice_psin = metis.interpolate_profile1d("tep", time_slice, psin=psin_slice)
+te_slice_psi = metis.profile1d_interpolate("tep", time_slice, psi=psi_slice)
+te_slice_psin = metis.profile1d_interpolate("tep", time_slice, psin=psin_slice)
 
 plot_tep_psi = plt.subplots()
 ax = plot_tep_psi[1]
