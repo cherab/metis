@@ -1,5 +1,6 @@
 import numpy as np
 from cherab.core.utility import RecursiveDict
+from cherab.core.math import Constant1D
 from cherab.tools.equilibrium.efit import EFITEquilibrium
 
 from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, interp1d
@@ -15,6 +16,8 @@ class METISModel:
 
         if filepath is not None:
             self.filepath = filepath
+
+        self._equilibrium = None
 
     def _flush_properties(self):
         """
@@ -64,6 +67,17 @@ class METISModel:
         self._profile0d_data = profil0d
 
     @property
+    def equilibrium(self):
+        return self._equilibrium
+
+    @equilibrium.setter
+    def equilibrium(self, value):
+        if not isinstance(value, EFITEquilibrium):
+            raise TypeError("Value has to be EFITEquilibrium, but {0} passed.".format(value))
+
+        self._equilibrium = value
+
+    @property
     def _time_shape(self):
         return self._zerod_data["temps"].shape[0]
 
@@ -104,12 +118,18 @@ class METISModel:
         array with all time slices is returned. If time is specified a the nearest time slice is returned as 1D array.
         :param quantity: Name of physical quantity from profiles1d dataset
         :param time: Time setting the nearest time silece to be returned.
-        :return:
+        :return: np.ndarray object
         """
 
         if not quantity in list(self._profile0d_data.keys()):
             raise ValueError(
                 "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._profile0d_data.keys()))
+
+        if quantity == "xli" and time:
+            return self._profile0d_data["xli"][:, 0]
+
+        if quantity == "xli" and not time:
+            return self._profile0d_data["xli"]
 
         if time:
             time_arg = self._get_nearest_index(time, self.time)
@@ -179,7 +199,7 @@ class METISModel:
         :param free_variable: Free variable to interpolate on. The name of the free_variable passed will determine the
                name of the quantity from the profile1d dataset. If no free_variable is specified, psin and the default
                values will be used
-        :return:
+        :return: np.ndarray object
         """
 
         # check validity of the quantity requested
@@ -197,7 +217,7 @@ class METISModel:
 
         if not free_variable_name in list(self._profile0d_data.keys()):
             raise ValueError(
-                "quantity {0}, not in zerod METIS group: {1}".format(free_variable_name, self._profile0d_data.keys()))
+                "quantity {0}, not in profil0d METIS group: {1}".format(free_variable_name, self._profile0d_data.keys()))
 
         # return interpolated values and create interpolator if missing
         try:
@@ -210,12 +230,12 @@ class METISModel:
             if not free_variable_name == "xli": #get time-space profiles into 1D free variable array
                 fv_vector = self._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
             else: #xli is only 1D array and has to be expanded to fit rest of the interpolation
-                fv_vector = np.tile(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+                fv_vector = np.repeat(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
 
             if not quantity == "xli": #get time-space profiles into 1D free variable array
                 v_vector = self._profile0d_data[quantity].flatten()
             else:
-                v_vector = np.tile(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+                v_vector = np.repeat(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
 
             pnts = np.concatenate((time_vector, fv_vector), axis=1)
             # construct the right interpolator
@@ -231,30 +251,163 @@ class METISModel:
 
         return value
 
-    def equilibrium_map2d(self, equilibrium:EFITEquilibrium, quantity, time, value_outside_lcfs=0.0):
+    def equilibrium_map2d(self, quantity, time, value_outside_lcfs=0.0, interpolate=True):
         """
         Generated 2d interpolator using EFITEquilibrium.map2d function
 
-        :param equilibrium: Cherab EFITEquilibrium time slice
         :param quantity: Physical quantity from profiles1d provided by METIS
-        :param time: time to interpolate the profile for
-        :param value_outside_lcfs: Value to return in point is outside lcfs
-        :return:
+        :param time: Time to interpolate the profile for or to search for the nearest simulation time-slice. Depends on value of interpolate parameter
+        :param value_outside_lcfs: Value to return if point is outside lcfs
+        :param interpolate: Defaut True, uses interpolation to obtain quantity values of given time and normalized poloidal flux.
+        If false the quantity values from the nearest simulated time slice are used.
+        :return: Function2D object.
         """
-        return equilibrium.map2d((self.profile1d_interpolate("psin", time), self.profile1d_interpolate(quantity, time)),
-                                 value_outside_lcfs)
 
-    def equilibrium_map3d(self, equilibrium, quantity, time, value_outside_lcfs=0.0):
+
+        #obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
+        if interpolate:
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+            values = self.profile1d_interpolate(quantity, time)
+        else:
+            values = self.profile1d(quantity, time)
+            psin = self.profile1d("psin", time)
+
+        return self._equilibrium.map2d((psin, values), value_outside_lcfs)
+
+    def equilibrium_map3d(self, quantity, time, value_outside_lcfs=0.0, interpolate=True):
         """
         Generate 3d interpolator using EFITEquilibrium.map3d function
 
-        :param equilibrium: Cherab EFITEquilibrium time slice
         :param quantity: Physical quantity from profiles1d provided by METIS
-        :param time: time to interpolate the profile for
-        :param value_outside_lcfs: Value to return in point is outside lcfs
-        :return:
+        :param time:Time to interpolate the profile for or to search for the nearest simulation time-slice. Depends on value of interpolate parameter
+        :param value_outside_lcfs: Value to return if point is outside lcfs
+        :param interpolate: Defaut True, uses interpolation to obtain quantity values of given time and normalized poloidal flux.
+        If false the quantity values from the nearest simulated time slice are used.
+        :return: Function3D object.
         """
 
-        return equilibrium.map3d((self.profile1d_interpolate("psin", time), self.profile1d_interpolate(quantity, time)),
+        #obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
+        if interpolate:
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+            values = self.profile1d_interpolate(quantity, time)
+        else:
+            psin = self.profile1d("psin", time)
+            values = self.profile1d(quantity, time)
+
+        return self._equilibrium.map3d((psin, values),
                                  value_outside_lcfs)
 
+
+    def equilibrium_map_vector2d(self, toroidal_quantity=None, poloidal_quantity=None, normal_quantity = None, time = None, value_outside_lcfs= 0.0, interpolate = True):
+        """
+        Uses EFITEquilibrium.map_vector2d to create 2D vector field interpolator.
+        :param toroidal_quantity: Toroidal vector component
+        :param poloidal_quantity: Pooidal vector component
+        :param normal_quantity: Component parallel toflux surface normal
+        :param time: Time to interpolate the profile for or to search for the nearest simulation time-slice. Depends on value of interpolate parameter
+        :param value_outside_lcfs: Value to return if point is outside lcfs
+        :param interpolate: Defaut True, uses interpolation to obtain quantity values of given time and normalized poloidal flux.
+        If false the quantity values from the nearest simulated time slice are used.
+        :return: VectorFunction2D object.
+        """
+
+        if time is None:
+            time = self.time[0]
+
+        #obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
+        if interpolate: #iterpolate psin and values
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+
+            #pass zeros if not specified
+            if toroidal_quantity is None:
+                toroidal_values = np.zeros_like(psin)
+            else:
+                toroidal_values = self.profile1d_interpolate(toroidal_quantity, time)
+
+            if poloidal_quantity is None:
+                poloidal_values = np.zeros_like(psin)
+            else:
+                poloidal_values = self.profile1d_interpolate(poloidal_quantity, time)
+
+            if normal_quantity is None:
+                normal_values = np.zeros_like(psin)
+            else:
+                normal_values = self.profile1d_interpolate(normal_quantity, time)
+        else:
+            psin = self.profile1d("psin", time)
+
+            if toroidal_quantity is None:
+                toroidal_values = np.zeros_like(psin)
+            else:
+                toroidal_values = self.profile1d(toroidal_quantity, time)
+
+            if poloidal_quantity is None:
+                poloidal_values = np.zeros_like(psin)
+            else:
+                poloidal_values = self.profile1d(poloidal_quantity, time)
+
+            if normal_quantity is None:
+                normal_values = np.zeros_like(psin)
+            else:
+                normal_values = self.profile1d(poloidal_quantity, time)
+
+
+        return self._equilibrium.map_vector2d((psin, toroidal_values), (psin, poloidal_values), (psin, normal_values))
+
+
+    def equilibrium_vectormap3d(self, toroidal_quantity=None, poloidal_quantity=None, normal_quantity=None,
+                                time=None, value_outside_lcfs=0.0, interpolate=True):
+        """
+        Uses EFITEquilibrium.map_vector2d to create 2D vector field interpolator.
+        :param toroidal_quantity: Toroidal vector component
+        :param poloidal_quantity: Pooidal vector component
+        :param normal_quantity: Component parallel toflux surface normal
+        :param time: Time to interpolate the profile for or to search for the nearest simulation time-slice. Depends on value of interpolate parameter
+        :param value_outside_lcfs: Value to return if point is outside lcfs
+        :param interpolate: Defaut True, uses interpolation to obtain quantity values of given time and normalized poloidal flux.
+        If false the quantity values from the nearest simulated time slice are used.
+        :return: VectorFunction3D object.
+        """
+
+
+        if time is None:
+            time = self.time[0]
+
+        if interpolate: #iterpolate psin and values
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+
+            #pass zeros if not specified
+            if toroidal_quantity is None:
+                toroidal_values = np.zeros_like(psin)
+            else:
+                toroidal_values = self.profile1d_interpolate(toroidal_quantity, time)
+
+            if poloidal_quantity is None:
+                poloidal_values = np.zeros_like(psin)
+            else:
+                poloidal_values = self.profile1d_interpolate(poloidal_quantity, time)
+
+            if normal_quantity is None:
+                normal_values = np.zeros_like(psin)
+            else:
+                normal_values = self.profile1d_interpolate(normal_quantity, time)
+        else:
+            psin = self.profile1d("psin", time)
+
+            if toroidal_quantity is None:
+                toroidal_values = np.zeros_like(psin)
+            else:
+                toroidal_values = self.profile1d(toroidal_quantity, time)
+
+            if poloidal_quantity is None:
+                poloidal_values = np.zeros_like(psin)
+            else:
+                poloidal_values = self.profile1d(poloidal_quantity, time)
+
+            if normal_quantity is None:
+                normal_values = np.zeros_like(psin)
+            else:
+                normal_values = self.profile1d(poloidal_quantity, time)
+
+
+        return self._equilibrium.map_vector3d((psin, toroidal_values), (psin, poloidal_values), (psin, normal_values))
