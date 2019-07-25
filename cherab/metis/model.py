@@ -1,11 +1,17 @@
 import numpy as np
+from cherab.core import Plasma, Species, Maxwellian
+from cherab.core.atomic.elements import lookup_element, lookup_isotope
+from cherab.core.math import Constant3D
 from cherab.core.utility import RecursiveDict
+from cherab.metis import read_hdf5
+from cherab.openadas import OpenADAS
+from cherab.tools.equilibrium.efit import EFITEquilibrium
+from cherab.tools.plasmas.ionisation_balance import from_elementdensity
+from scipy.constants import electron_mass, atomic_mass
 from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, interp1d
 
-from cherab.metis import read_hdf5
 
-
-class METISModel():
+class METISModel:
 
     def __init__(self, filepath=None):
 
@@ -13,6 +19,8 @@ class METISModel():
 
         if filepath is not None:
             self.filepath = filepath
+
+        self._equilibrium = None
 
     def _flush_properties(self):
         """
@@ -62,6 +70,17 @@ class METISModel():
         self._profile0d_data = profil0d
 
     @property
+    def equilibrium(self):
+        return self._equilibrium
+
+    @equilibrium.setter
+    def equilibrium(self, value):
+        if not isinstance(value, EFITEquilibrium):
+            raise TypeError("Value has to be EFITEquilibrium, but {0} passed.".format(value))
+
+        self._equilibrium = value
+
+    @property
     def _time_shape(self):
         return self._zerod_data["temps"].shape[0]
 
@@ -85,7 +104,7 @@ class METISModel():
         """
         return list(self._profile0d_data.keys())
 
-    def zerod(self, quantity):
+    def zerod(self, quantity, time=None):
         """
         Returns array of values for the specified quantity from zerod dataset.
         :param quantity: Name of physical quantity from zerod dataset
@@ -94,7 +113,11 @@ class METISModel():
         if not quantity in list(self._zerod_data.keys()):
             raise ValueError("quantity {0}, not in zerod METIS group: {1}".format(quantity, self._zerod_data.keys()))
 
-        return self._zerod_data[quantity]
+        if time is None:
+            return self._zerod_data[quantity]
+        else:
+            index = self._get_nearest_index(time, self.time)
+            return self._zerod_data[quantity][index]
 
     def profile1d(self, quantity, time=None):
         """
@@ -102,12 +125,18 @@ class METISModel():
         array with all time slices is returned. If time is specified a the nearest time slice is returned as 1D array.
         :param quantity: Name of physical quantity from profiles1d dataset
         :param time: Time setting the nearest time silece to be returned.
-        :return:
+        :return: np.ndarray object
         """
 
         if not quantity in list(self._profile0d_data.keys()):
             raise ValueError(
                 "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._profile0d_data.keys()))
+
+        if quantity == "xli" and time:
+            return self._profile0d_data["xli"][:, 0]
+
+        if quantity == "xli" and not time:
+            return self._profile0d_data["xli"]
 
         if time:
             time_arg = self._get_nearest_index(time, self.time)
@@ -141,7 +170,7 @@ class METISModel():
         """
         return self._zerod_data["temps"]
 
-    def interpolate_zerod(self, quantity, time, kind="cubic"):
+    def zerod_interpolate(self, quantity, time, kind="cubic"):
         """
         Interpolates quantity for given time value. The quantity name has to be a valid METIS 0D quantity.
         :param quantity: str, a valid zerod quantity
@@ -168,7 +197,7 @@ class METISModel():
 
         return value
 
-    def interpolate_profile1d(self, quantity, time, kind="cubic", **free_variable):
+    def profile1d_interpolate(self, quantity, time, kind="cubic", **free_variable):
         """
         Attempts to interpolate requested quantity for the specified free variable and time.
         :param quantity: str, a valid profile1d quantity
@@ -177,7 +206,7 @@ class METISModel():
         :param free_variable: Free variable to interpolate on. The name of the free_variable passed will determine the
                name of the quantity from the profile1d dataset. If no free_variable is specified, psin and the default
                values will be used
-        :return:
+        :return: np.ndarray object
         """
 
         # check validity of the quantity requested
@@ -195,7 +224,8 @@ class METISModel():
 
         if not free_variable_name in list(self._profile0d_data.keys()):
             raise ValueError(
-                "quantity {0}, not in zerod METIS group: {1}".format(free_variable_name, self._profile0d_data.keys()))
+                "quantity {0}, not in profil0d METIS group: {1}".format(free_variable_name,
+                                                                        self._profile0d_data.keys()))
 
         # return interpolated values and create interpolator if missing
         try:
@@ -204,16 +234,16 @@ class METISModel():
             # prepare values for the interpolator initialization
             time_vector = np.tile(self.time, self._profile_shape)[:, np.newaxis]
 
-           # construct free variable 1D array of values
-            if not free_variable_name == "xli": #get time-space profiles into 1D free variable array
+            # construct free variable 1D array of values
+            if not free_variable_name == "xli":  # get time-space profiles into 1D free variable array
                 fv_vector = self._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
-            else: #xli is only 1D array and has to be expanded to fit rest of the interpolation
-                fv_vector = np.tile(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+            else:  # xli is only 1D array and has to be expanded to fit rest of the interpolation
+                fv_vector = np.repeat(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
 
-            if not quantity == "xli": #get time-space profiles into 1D free variable array
+            if not quantity == "xli":  # get time-space profiles into 1D free variable array
                 v_vector = self._profile0d_data[quantity].flatten()
             else:
-                v_vector = np.tile(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+                v_vector = np.repeat(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
 
             pnts = np.concatenate((time_vector, fv_vector), axis=1)
             # construct the right interpolator
@@ -228,3 +258,241 @@ class METISModel():
             value = self._profile1d_interpolator[quantity][free_variable_name][kind](time, free_variable_data).squeeze()
 
         return value
+
+    def equilibrium_map2d(self, quantity, time, value_outside_lcfs=0.0, interpolate=True):
+        """
+        Generated 2d interpolator using EFITEquilibrium.map2d function
+
+        :param quantity: Physical quantity from profiles1d provided by METIS
+        :param time: Time to interpolate the profile for or to search for the nearest simulation time-slice. Depends on value of interpolate parameter
+        :param value_outside_lcfs: Value to return if point is outside lcfs
+        :param interpolate: Defaut True, uses interpolation to obtain quantity values of given time and normalized poloidal flux.
+        If false the quantity values from the nearest simulated time slice are used.
+        :return: Function2D object.
+        """
+
+        # obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
+        if interpolate:
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+            values = self.profile1d_interpolate(quantity, time)
+        else:
+            values = self.profile1d(quantity, time)
+            psin = self.profile1d("psin", time)
+
+        return self._equilibrium.map2d((psin, values), value_outside_lcfs)
+
+    def equilibrium_map3d(self, quantity, time, value_outside_lcfs=0.0, interpolate=True):
+        """
+        Generate 3d interpolator using EFITEquilibrium.map3d function
+
+        :param quantity: Physical quantity from profiles1d provided by METIS
+        :param time:Time to interpolate the profile for or to search for the nearest simulation time-slice. Depends on value of interpolate parameter
+        :param value_outside_lcfs: Value to return if point is outside lcfs
+        :param interpolate: Defaut True, uses interpolation to obtain quantity values of given time and normalized poloidal flux.
+        If false the quantity values from the nearest simulated time slice are used.
+        :return: Function3D object.
+        """
+
+        # obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
+        if interpolate:
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+            values = self.profile1d_interpolate(quantity, time)
+        else:
+            psin = self.profile1d("psin", time)
+            values = self.profile1d(quantity, time)
+
+        return self._equilibrium.map3d((psin, values),
+                                       value_outside_lcfs)
+
+    def equilibrium_map_vector2d(self, toroidal_quantity=None, poloidal_quantity=None, normal_quantity=None, time=None,
+                                 value_outside_lcfs=0.0, interpolate=True):
+        """
+        Uses EFITEquilibrium.map_vector2d to create 2D vector field interpolator.
+        :param toroidal_quantity: Toroidal vector component
+        :param poloidal_quantity: Pooidal vector component
+        :param normal_quantity: Component parallel toflux surface normal
+        :param time: Time to interpolate the profile for or to search for the nearest simulation time-slice. Depends on value of interpolate parameter
+        :param value_outside_lcfs: Value to return if point is outside lcfs
+        :param interpolate: Defaut True, uses interpolation to obtain quantity values of given time and normalized poloidal flux.
+        If false the quantity values from the nearest simulated time slice are used.
+        :return: VectorFunction2D object.
+        """
+
+        if time is None:
+            time = self.time[0]
+
+        # obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
+        if interpolate:  # iterpolate psin and values
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+
+            # pass zeros if not specified
+            if toroidal_quantity is None:
+                toroidal_values = np.zeros_like(psin)
+            else:
+                toroidal_values = self.profile1d_interpolate(toroidal_quantity, time)
+
+            if poloidal_quantity is None:
+                poloidal_values = np.zeros_like(psin)
+            else:
+                poloidal_values = self.profile1d_interpolate(poloidal_quantity, time)
+
+            if normal_quantity is None:
+                normal_values = np.zeros_like(psin)
+            else:
+                normal_values = self.profile1d_interpolate(normal_quantity, time)
+        else:
+            psin = self.profile1d("psin", time)
+
+            if toroidal_quantity is None:
+                toroidal_values = np.zeros_like(psin)
+            else:
+                toroidal_values = self.profile1d(toroidal_quantity, time)
+
+            if poloidal_quantity is None:
+                poloidal_values = np.zeros_like(psin)
+            else:
+                poloidal_values = self.profile1d(poloidal_quantity, time)
+
+            if normal_quantity is None:
+                normal_values = np.zeros_like(psin)
+            else:
+                normal_values = self.profile1d(poloidal_quantity, time)
+
+        return self._equilibrium.map_vector2d((psin, toroidal_values), (psin, poloidal_values), (psin, normal_values))
+
+    def equilibrium_map_vector3d(self, toroidal_quantity=None, poloidal_quantity=None, normal_quantity=None,
+                                 time=None, value_outside_lcfs=0.0, interpolate=True):
+        """
+        Uses EFITEquilibrium.map_vector2d to create 2D vector field interpolator.
+        :param toroidal_quantity: Toroidal vector component
+        :param poloidal_quantity: Pooidal vector component
+        :param normal_quantity: Component parallel toflux surface normal
+        :param time: Time to interpolate the profile for or to search for the nearest simulation time-slice. Depends on value of interpolate parameter
+        :param value_outside_lcfs: Value to return if point is outside lcfs
+        :param interpolate: Defaut True, uses interpolation to obtain quantity values of given time and normalized poloidal flux.
+        If false the quantity values from the nearest simulated time slice are used.
+        :return: VectorFunction3D object.
+        """
+
+        if time is None:
+            time = self.time[0]
+
+        if interpolate:  # iterpolate psin and values
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+
+            # pass zeros if not specified
+            if toroidal_quantity is None:
+                toroidal_values = np.zeros_like(psin)
+            else:
+                toroidal_values = self.profile1d_interpolate(toroidal_quantity, time)
+
+            if poloidal_quantity is None:
+                poloidal_values = np.zeros_like(psin)
+            else:
+                poloidal_values = self.profile1d_interpolate(poloidal_quantity, time)
+
+            if normal_quantity is None:
+                normal_values = np.zeros_like(psin)
+            else:
+                normal_values = self.profile1d_interpolate(normal_quantity, time)
+        else:
+            psin = self.profile1d("psin", time)
+
+            if toroidal_quantity is None:
+                toroidal_values = np.zeros_like(psin)
+            else:
+                toroidal_values = self.profile1d(toroidal_quantity, time)
+
+            if poloidal_quantity is None:
+                poloidal_values = np.zeros_like(psin)
+            else:
+                poloidal_values = self.profile1d(poloidal_quantity, time)
+
+            if normal_quantity is None:
+                normal_values = np.zeros_like(psin)
+            else:
+                normal_values = self.profile1d(poloidal_quantity, time)
+
+        return self._equilibrium.map_vector3d((psin, toroidal_values), (psin, poloidal_values), (psin, normal_values))
+
+    def create_plasma(self, time, plasma: Plasma = None, interpolate=True, hydrogen_isotope_number=2, t_cold_neutrals=1,
+                      atomic_data=None, main_impurity=None):
+
+        if atomic_data is None:
+            atomic_data = OpenADAS()
+
+        if plasma is None:
+            plasma = Plasma()
+
+        plasma_rotation = self.equilibrium_map_vector3d(toroidal_quantity="vtor", poloidal_quantity="vtheta", time=time,
+                                                        interpolate=interpolate)
+        # populate electrons
+        if interpolate:
+            n_e = self.profile1d_interpolate("nep", time)
+            t_e = self.profile1d_interpolate("tep", time)
+            n_h0_cold = self.profile1d_interpolate("n0m", time)
+            n_h0_hot = self.profile1d_interpolate("n0", time)
+        else:
+            n_e = self.profile1d("nep", time)
+            t_e = self.profile1d("tep", time)
+            n_h0_cold = self.profile1d("n0m", time)
+            n_h0_hot = self.profile1d("n0", time)
+
+        electron_density = self.equilibrium_map3d("nep", time, interpolate=interpolate)
+        electron_temperature = self.equilibrium_map3d("nep", time, interpolate=interpolate)
+
+        plasma.electron_distribution = Maxwellian(electron_density, electron_temperature, plasma_rotation,
+                                                  electron_mass)
+
+        # populate hydrogen ions
+        hydrogen_isotope = lookup_isotope("hydrogen", number=hydrogen_isotope_number)
+
+        t_i = self.equilibrium_map3d("tip", time, interpolate=interpolate)
+
+        h0_hot_density = self.equilibrium_map3d("n0", time, interpolate=interpolate)
+        h0_hot_distribution = Maxwellian(h0_hot_density, t_i, plasma_rotation,
+                                         hydrogen_isotope.atomic_weight * atomic_mass)
+        plasma.composition.add(Species(hydrogen_isotope, 0, h0_hot_distribution))
+
+        h0_cold_density = self.equilibrium_map3d("n0m", time, interpolate=interpolate)
+        h0_cold_temperature = Constant3D(0)
+        h0_cold_distribution = Maxwellian(h0_cold_density, h0_cold_temperature, plasma_rotation,
+                                          hydrogen_isotope.atomic_weight * atomic_mass)
+        plasma.composition.add(Species(hydrogen_isotope, 0, h0_cold_distribution))
+
+        h1_density = self.equilibrium_map3d("n1p", time, interpolate=interpolate)
+        h1_distribution = Maxwellian(h1_density, t_i, plasma_rotation, hydrogen_isotope.atomic_weight * atomic_mass)
+        plasma.composition.add(Species(hydrogen_isotope, 1, h1_distribution))
+
+        # add helium species if present
+        if interpolate:
+            he_density = self.profile1d_interpolate("nhep", time)
+        else:
+            he_density = self.profile1d("nhep", time)
+
+        if np.any(he_density > 0):
+            helium = lookup_element("helium")
+
+            helium_balance = from_elementdensity(atomic_data, helium, he_density, n_e, t_e,
+                                                 tcx_donor=lookup_element("hydrogen"), tcx_donor_charge=0,
+                                                 tcx_donor_n=n_h0_cold + n_h0_cold)
+
+            for charge, dens in helium_balance.items():
+                dist = Maxwellian(dens, t_i, plasma_rotation, helium.atomic_weight * atomic_mass)
+                plasma.composition.add(Species(helium, charge, dist))
+
+        if main_impurity is not None:
+            if interpolate:
+                main_density = self.profile1d_interpolate("nzp", time)
+            else:
+                main_density = self.profile1d("nzp", time)
+
+            balance = from_elementdensity(atomic_data, main_impurity, main_density, n_e, t_e,
+                                          tcx_donor=lookup_element("hydrogen"), tcx_donor_charge=0,
+                                          tcx_donor_n=n_h0_cold + n_h0_cold)
+
+            for charge, dens in balance.items():
+                dist = Maxwellian(dens, t_i, plasma_rotation, main_impurity.atomic_weight * atomic_mass)
+                plasma.composition.add(Species(main_impurity, charge, dist))
+
+        return plasma
