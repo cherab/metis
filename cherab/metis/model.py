@@ -1,14 +1,20 @@
-import numpy as np
+from raysect.core import Vector3D
+
 from cherab.core import Plasma, Species, Maxwellian
-from cherab.core.atomic.elements import lookup_element, lookup_isotope
+from cherab.core.atomic.elements import lookup_element, lookup_isotope, helium
 from cherab.core.math import Constant3D
 from cherab.core.utility import RecursiveDict
 from cherab.metis import read_hdf5
 from cherab.openadas import OpenADAS
 from cherab.tools.equilibrium.efit import EFITEquilibrium
 from cherab.tools.plasmas.ionisation_balance import from_elementdensity
+from cherab.core.math import Interpolate1DCubic, ClampOutput1D
+from cherab.core.math.constant import ConstantVector3D
+
 from scipy.constants import electron_mass, atomic_mass
 from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, interp1d
+
+import numpy as np
 
 
 class METISModel:
@@ -259,6 +265,31 @@ class METISModel:
 
         return value
 
+    def interpolator1d(self, quantity, time, kind="cubic", **free_variable):
+                # check validity of the quantity requested
+        if not quantity in list(self._profile0d_data.keys()):
+            raise ValueError(
+                "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._profile0d_data.keys()))
+
+        # prepare free variable and check validity
+        if not free_variable:
+            free_variable_name = "psin"
+            free_variable_data = np.linspace(0, 1, self._profile_shape, endpoint=True)
+        else:
+            free_variable_name = list(free_variable.keys())[0]
+            free_variable_data = free_variable[free_variable_name]
+
+        if not free_variable_name in list(self._profile0d_data.keys()):
+            raise ValueError(
+                "quantity {0}, not in profil0d METIS group: {1}".format(free_variable_name,
+                                                                        self._profile0d_data.keys()))
+
+        profile = self.profile1d_interpolate(quantity, time, kind=kind, **{free_variable_name: free_variable_data})
+
+        interpolator = Interpolate1DCubic(free_variable_data, profile, extrapolate=True, extrapolation_type="nearest")
+
+        return interpolator
+
     def equilibrium_map2d(self, quantity, time, value_outside_lcfs=0.0, interpolate=True):
         """
         Generated 2d interpolator using EFITEquilibrium.map2d function
@@ -279,7 +310,8 @@ class METISModel:
             values = self.profile1d(quantity, time)
             psin = self.profile1d("psin", time)
 
-        return self._equilibrium.map2d((psin, values), value_outside_lcfs)
+        profile = Interpolate1DCubic(psin, values, extrapolate=True, extrapolation_type="nearest")
+        return self._equilibrium.map2d(profile, value_outside_lcfs)
 
     def equilibrium_map3d(self, quantity, time, value_outside_lcfs=0.0, interpolate=True):
         """
@@ -301,8 +333,8 @@ class METISModel:
             psin = self.profile1d("psin", time)
             values = self.profile1d(quantity, time)
 
-        return self._equilibrium.map3d((psin, values),
-                                       value_outside_lcfs)
+        profile = Interpolate1DCubic(psin, values)
+        return self._equilibrium.map3d(profile, value_outside_lcfs)
 
     def equilibrium_map_vector2d(self, toroidal_quantity=None, poloidal_quantity=None, normal_quantity=None, time=None,
                                  value_outside_lcfs=0.0, interpolate=True):
@@ -357,6 +389,10 @@ class METISModel:
                 normal_values = np.zeros_like(psin)
             else:
                 normal_values = self.profile1d(poloidal_quantity, time)
+
+        profile_toroidal = Interpolate1DCubic(psin, toroidal_values, extrapolate=True, extrapolation_type="nearest")
+        profile_poloidal = Interpolate1DCubic(psin, toroidal_values, extrapolate=True, extrapolation_type="nearest")
+        profile_normal = Interpolate1DCubic(psin, toroidal_values, extrapolate=True, extrapolation_type="nearest")
 
         return self._equilibrium.map_vector2d((psin, toroidal_values), (psin, poloidal_values), (psin, normal_values))
 
@@ -415,7 +451,7 @@ class METISModel:
 
         return self._equilibrium.map_vector3d((psin, toroidal_values), (psin, poloidal_values), (psin, normal_values))
 
-    def create_plasma(self, time, plasma: Plasma = None, interpolate=True, hydrogen_isotope_number=2, t_cold_neutrals=1,
+    def create_plasma(self, time, plasma: Plasma = None, interpolate=False, hydrogen_isotope_number=2, t_cold_neutrals=1,
                       atomic_data=None, main_impurity=None):
 
         if atomic_data is None:
@@ -497,3 +533,52 @@ class METISModel:
                 plasma.composition.add(Species(main_impurity, charge, dist))
 
         return plasma
+
+    def match_zeff(self, time, plasma: Plasma = None, interpolate=True, element = helium):
+        """
+        Fills plasma with absolutely stripped ions to match zeff simulated by metis. This can be useful when concrete
+        impurity is not known which is not important for some kinds of simulations e.g. bremsstrahlung radiation.
+        Returned plasma profile has zeff equal or higher than metis results.
+
+        :param time: shot time
+        :param plasma: Plasma object to be modified.
+        :param interpolate: Specifies wether used metis profiles should be interpolated. If True Metis profiles are
+        interpolated over time and poloidal flux. If False profiles for nearest simulated time slice are chosen.
+        :param element: Element to fill the plasma with.
+        :return: Plasma object with matched zeff
+        """
+
+        if plasma is None:#Create instance of Plasma if not passed as argument
+            plasma = self.create_plasma(time=time, interpolate=interpolate)
+
+        psin = self.profile1d("psin", time=time)
+        zeff_metis = self.profile1d("zeff", time= time)
+        zeff_plasma= np.ones_like(zeff_metis)
+
+        for i, v in enumerate(psin):
+            #it seems that psin=1 due to interpolation errors can do problems with finding no charged particles in cherab plasma object.
+            try:
+                zeff_plasma[i] = plasma.z_effective(self.equilibrium.psin_to_r(v), 0, 0)
+            except ValueError:
+                zeff_plasma[i] =plasma.z_effective(self.equilibrium.psin_to_r(v) - 0.001, 0, 0)
+                print("Plasma does not contain any ionised species for psi_normalised = {0}, using value for spi_normalised = {1}".format(v, v-0.001))
+
+        n_d = self.profile1d("n1p", time=time)
+        n_e = self.profile1d("nep", time=time)
+        t_i = self.equilibrium_map3d("tip", time=time, interpolate=False)
+        n_fill = n_d * (zeff_metis - zeff_plasma)/(element.atomic_number ** 2 - element.atomic_number * zeff_metis)
+
+        #remove negative densities
+        tmp = np.where(n_fill < 0)[0]
+        n_fill[tmp] = 0
+
+        #create 3D interpolator
+        n_fill = self.equilibrium.map3d((psin, n_fill))
+
+        #create plasma species and add it to the plasma
+        fill_distribution = Maxwellian(n_fill, t_i, ConstantVector3D(Vector3D(0, 0, 0)), element.atomic_weight * atomic_mass)
+        fill_species = Species(element, element.atomic_number, fill_distribution)
+        plasma.composition.add(fill_species)
+
+        return plasma
+
