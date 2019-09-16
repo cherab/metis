@@ -475,7 +475,7 @@ class METISModel:
             n_h0_hot = self.profile1d("n0", time)
 
         electron_density = self.equilibrium_map3d("nep", time, interpolate=interpolate)
-        electron_temperature = self.equilibrium_map3d("nep", time, interpolate=interpolate)
+        electron_temperature = self.equilibrium_map3d("tep", time, interpolate=interpolate)
 
         plasma.electron_distribution = Maxwellian(electron_density, electron_temperature, plasma_rotation,
                                                   electron_mass)
