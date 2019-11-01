@@ -18,6 +18,21 @@ import numpy as np
 
 
 class METISModel:
+    """
+    This class handles METIS simulation results and provides methods which offer data interpolation, provide the raw
+    data and also constructs various CHERAB objects as interpolators, plasma species and Plasma instance. The Class
+    has to be provided a MetisDatasource class which handles the data reading and input.
+
+    Example:
+    .. code-block:: pycon
+        >>>from cherab.metis.model import METISModel
+        >>>from cherab.metis.data_source import MatlabMetisFile
+        >>>
+        >>>
+        >>>file = "path/to/the/file.mat"
+        >>>metis_source = MatlabMetisFile(file)
+        >>>metis = METISModel(metis_source)
+    """
 
     def __init__(self, data_source=None):
 
