@@ -50,7 +50,14 @@ class METISModel:
         return argmin
 
     def get_data(self):
-        self._data_source._get_data()
+        self.get_data()
+
+    def _get_data(self):
+        self._data_source.get_data()
+
+    def _data_changed(self):
+        self._zerod_data = self._data_source._zerod_data
+        self._profile0d_data = self._data_source._profile0d_data
 
     @property
     def data_source(self):
@@ -60,6 +67,8 @@ class METISModel:
     def data_source(self, data_source: MetisDatasource_base):
         self._data_source = data_source
         self._flush_variables()
+        self._data_source._notifier.add(self._data_changed)
+        self._data_changed()
 
     @property
     def equilibrium(self):
@@ -74,11 +83,11 @@ class METISModel:
 
     @property
     def _time_shape(self):
-        return self._data_source._zerod_data["temps"].shape[0]
+        return self._zerod_data["temps"].shape[0]
 
     @property
     def _profile_shape(self):
-        return self._data_source._profile0d_data["psi"].shape[0]
+        return self._profile0d_data["psi"].shape[0]
 
     @property
     def zerod_list(self):
@@ -86,7 +95,7 @@ class METISModel:
         List of quantities in zerod dataset.
         :return:
         """
-        return list(self._data_source._zerod_data.keys())
+        return list(self._zerod_data.keys())
 
     @property
     def profile1d_list(self):
@@ -94,7 +103,7 @@ class METISModel:
         List of quantities in profile1d dataset.
         :return:
         """
-        return list(self._data_source._profile0d_data.keys())
+        return list(self._profile0d_data.keys())
 
     def zerod(self, quantity, time=None):
         """
@@ -102,15 +111,15 @@ class METISModel:
         :param quantity: Name of physical quantity from zerod dataset
         :return:
         """
-        if not quantity in list(self._data_source._zerod_data.keys()):
+        if not quantity in list(self._zerod_data.keys()):
             raise ValueError(
-                "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._data_source._zerod_data.keys()))
+                "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._zerod_data.keys()))
 
         if time is None:
-            return self._data_source._zerod_data[quantity]
+            return self._zerod_data[quantity]
         else:
             index = self._get_nearest_index(time, self.time)
-            return self._data_source._zerod_data[quantity][index]
+            return self._zerod_data[quantity][index]
 
     def profile1d(self, quantity, time=None):
         """
@@ -121,22 +130,22 @@ class METISModel:
         :return: np.ndarray object
         """
 
-        if not quantity in list(self._data_source._profile0d_data.keys()):
+        if not quantity in list(self._profile0d_data.keys()):
             raise ValueError(
                 "quantity {0}, not in zerod METIS group: {1}".format(quantity,
-                                                                     self._data_source._profile0d_data.keys()))
+                                                                     self._profile0d_data.keys()))
 
         if quantity == "xli" and time:
-            return self._data_source._profile0d_data["xli"][:, 0]
+            return self._profile0d_data["xli"][:, 0]
 
         if quantity == "xli" and not time:
-            return self._data_source._profile0d_data["xli"]
+            return self._profile0d_data["xli"]
 
         if time:
             time_arg = self._get_nearest_index(time, self.time)
-            return self._data_source._profile0d_data[quantity][:, time_arg]
+            return self._profile0d_data[quantity][:, time_arg]
         else:
-            return self._data_source._profile0d_data[quantity]
+            return self._profile0d_data[quantity]
 
     @property
     def time(self):
@@ -144,7 +153,7 @@ class METISModel:
         time vector of the timeslices
         :return:
         """
-        return self._data_source._zerod_data["temps"]
+        return self._zerod_data["temps"]
 
     def zerod_interpolate(self, quantity, time, kind="cubic"):
         """
@@ -155,10 +164,10 @@ class METISModel:
         :return: float
         """
         # check validity of the quantity requested
-        if not quantity in list(self._data_source._zerod_data.keys()):
+        if not quantity in list(self._zerod_data.keys()):
             raise ValueError(
                 "{0} passed as quantity, but has to be one of: {1}".format(quantity,
-                                                                           self._data_source._zerod_data.keys()))
+                                                                           self._zerod_data.keys()))
 
         # return interpolated values and create interpolator if missing
         try:
@@ -166,7 +175,7 @@ class METISModel:
         except TypeError:
             # construct the right interpolator
             if kind == "cubic" or kind == "linear":
-                self._zerod_interpolator[quantity][kind] = interp1d(self.time, self._data_source._zerod_data[quantity],
+                self._zerod_interpolator[quantity][kind] = interp1d(self.time, self._zerod_data[quantity],
                                                                     kind=kind)
             else:
                 raise ValueError("degree can be only 'linear' or 'cubic' but '{0}' passed.".format(kind))
@@ -188,10 +197,10 @@ class METISModel:
         """
 
         # check validity of the quantity requested
-        if not quantity in list(self._data_source._profile0d_data.keys()):
+        if not quantity in list(self._profile0d_data.keys()):
             raise ValueError(
                 "quantity {0}, not in zerod METIS group: {1}".format(quantity,
-                                                                     self._data_source._profile0d_data.keys()))
+                                                                     self._profile0d_data.keys()))
 
         # prepare free variable and check validity
         if not free_variable:
@@ -201,10 +210,10 @@ class METISModel:
             free_variable_name = list(free_variable.keys())[0]
             free_variable_data = free_variable[free_variable_name]
 
-        if not free_variable_name in list(self._data_source._profile0d_data.keys()):
+        if not free_variable_name in list(self._profile0d_data.keys()):
             raise ValueError(
                 "quantity {0}, not in profil0d METIS group: {1}".format(free_variable_name,
-                                                                        self._data_source._profile0d_data.keys()))
+                                                                        self._profile0d_data.keys()))
 
         # return interpolated values and create interpolator if missing
         try:
@@ -215,14 +224,14 @@ class METISModel:
 
             # construct free variable 1D array of values
             if not free_variable_name == "xli":  # get time-space profiles into 1D free variable array
-                fv_vector = self._data_source._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
+                fv_vector = self._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
             else:  # xli is only 1D array and has to be expanded to fit rest of the interpolation
-                fv_vector = np.repeat(self._data_source._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+                fv_vector = np.repeat(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
 
             if not quantity == "xli":  # get time-space profiles into 1D free variable array
-                v_vector = self._data_source._profile0d_data[quantity].flatten()
+                v_vector = self._profile0d_data[quantity].flatten()
             else:
-                v_vector = np.repeat(self._data_source._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+                v_vector = np.repeat(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
 
             pnts = np.concatenate((time_vector, fv_vector), axis=1)
             # construct the right interpolator
@@ -240,10 +249,10 @@ class METISModel:
 
     def interpolator1d(self, quantity, time, kind="cubic", **free_variable):
         # check validity of the quantity requested
-        if not quantity in list(self._data_source._profile0d_data.keys()):
+        if not quantity in list(self._profile0d_data.keys()):
             raise ValueError(
                 "quantity {0}, not in zerod METIS group: {1}".format(quantity,
-                                                                     self._data_source._profile0d_data.keys()))
+                                                                     self._profile0d_data.keys()))
 
         # prepare free variable and check validity
         if not free_variable:
@@ -253,10 +262,10 @@ class METISModel:
             free_variable_name = list(free_variable.keys())[0]
             free_variable_data = free_variable[free_variable_name]
 
-        if not free_variable_name in list(self._data_source._profile0d_data.keys()):
+        if not free_variable_name in list(self._profile0d_data.keys()):
             raise ValueError(
                 "quantity {0}, not in profil0d METIS group: {1}".format(free_variable_name,
-                                                                        self._data_source._profile0d_data.keys()))
+                                                                        self._profile0d_data.keys()))
 
         profile = self.profile1d_interpolate(quantity, time, kind=kind, **{free_variable_name: free_variable_data})
 
@@ -278,7 +287,7 @@ class METISModel:
 
         # obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
         if interpolate:
-            psin = self.profile1d_interpolate("psin", time, xli=self._data_source._profile0d_data["xli"][:, 0])
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
             values = self.profile1d_interpolate(quantity, time)
         else:
             values = self.profile1d(quantity, time)
@@ -301,7 +310,7 @@ class METISModel:
 
         # obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
         if interpolate:
-            psin = self.profile1d_interpolate("psin", time, xli=self._data_source._profile0d_data["xli"][:, 0])
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
             values = self.profile1d_interpolate(quantity, time)
         else:
             psin = self.profile1d("psin", time)
@@ -329,7 +338,7 @@ class METISModel:
 
         # obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
         if interpolate:  # iterpolate psin and values
-            psin = self.profile1d_interpolate("psin", time, xli=self._data_source._profile0d_data["xli"][:, 0])
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
 
             # pass zeros if not specified
             if toroidal_quantity is None:
@@ -388,7 +397,7 @@ class METISModel:
             time = self.time[0]
 
         if interpolate:  # iterpolate psin and values
-            psin = self.profile1d_interpolate("psin", time, xli=self._data_source._profile0d_data["xli"][:, 0])
+            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
 
             # pass zeros if not specified
             if toroidal_quantity is None:

@@ -1,13 +1,24 @@
 from cherab.metis import read_hdf5
 import numpy as np
+from cherab.core.utility import Notifier
 
 class MetisDatasource_base:
 
     def __init__(self):
 
+        self._notifier = Notifier()
         self._flush_variables()
 
     def get_data(self):
+        """
+        Reads data from the data source and calls notifier to notify listening objects that data have changed.
+        :return:
+        """
+
+        self._get_data()
+        self._notifier.notify()
+
+    def _get_data(self):
         """
         Reads data from the data source.
         :return:
@@ -39,7 +50,7 @@ class MatlabMetisFile(MetisDatasource_base):
 
 
 
-    def get_data(self):
+    def _get_data(self):
         """
         Reads data from metis file and uptades the object.
         :return:
