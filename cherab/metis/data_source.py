@@ -73,8 +73,8 @@ class MatlabMetisFile(MetisDataSource_base):
         self._time = zerod["temps"]
 
         # calculate normalized poloidal flux and add it to profiles
-        profil0d["psin"] = np.divide((profil0d["psi"] - profil0d["psi"].min(axis=0)),
-                                     profil0d["psi"].max(axis=0) - profil0d["psi"].min(axis=0))
+        profil0d["psin"] = np.divide((profil0d["psi"] - profil0d["psi"][0, :]),
+                                     profil0d["psi"][-1, :] - profil0d["psi"][0, :])
 
         self._zerod_data = zerod
         self._profile0d_data = profil0d
