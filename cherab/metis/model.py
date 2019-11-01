@@ -1,34 +1,38 @@
-import numpy as np
+from raysect.core import Vector3D
+
 from cherab.core import Plasma, Species, Maxwellian
-from cherab.core.atomic.elements import lookup_element, lookup_isotope
+from cherab.core.atomic.elements import lookup_element, lookup_isotope, helium
 from cherab.core.math import Constant3D
+from cherab.core.math import Interpolate1DCubic
+from cherab.core.math.constant import ConstantVector3D
 from cherab.core.utility import RecursiveDict
-from cherab.metis import read_hdf5
 from cherab.openadas import OpenADAS
 from cherab.tools.equilibrium.efit import EFITEquilibrium
 from cherab.tools.plasmas.ionisation_balance import from_elementdensity
+from cherab.metis.data_source import MetisDatasource_base
+
 from scipy.constants import electron_mass, atomic_mass
 from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, interp1d
+
+import numpy as np
 
 
 class METISModel:
 
-    def __init__(self, filepath=None):
+    def __init__(self, data_source=None):
 
-        self._flush_properties()
+        self._flush_variables()
 
-        if filepath is not None:
-            self.filepath = filepath
+        if data_source is not None:
+            self.data_source = data_source
 
         self._equilibrium = None
 
-    def _flush_properties(self):
+    def _flush_variables(self):
         """
-        reset vaues connected to data
+        reset variables connected to data
         :return:
         """
-        self._zerod_data = {}
-        self._profile0d_data = {}
 
         self._zerod_interpolator = RecursiveDict()  # holds interpolator for zerod dataset
         self._profile1d_interpolator = RecursiveDict()  # holds interpolators for profile1d dataset
@@ -45,29 +49,26 @@ class METISModel:
 
         return argmin
 
-    def update_data(self):
-        """
-        Reads data from metis file and uptades the object.
-        :return:
-        """
+    def get_data(self):
+        self.get_data()
 
-        if self._filepath is None:
-            raise ValueError('Self.filepath has to be specified')
+    def _get_data(self):
+        self._data_source.get_data()
 
-        zerod, profil0d = read_hdf5(self._filepath)
+    def _data_changed(self):
+        self._zerod_data = self._data_source._zerod_data
+        self._profile0d_data = self._data_source._profile0d_data
 
-        self._flush_properties()
+    @property
+    def data_source(self):
+        return self._data_source
 
-        self._zerod_data = zerod
-        self._profile0d_data = profil0d
-        self._time = zerod["temps"]
-
-        # calculate normalized poloidal flux and add it to profiles
-        profil0d["psin"] = np.divide((profil0d["psi"] - profil0d["psi"].min(axis=0)),
-                                     profil0d["psi"].max(axis=0) - profil0d["psi"].min(axis=0))
-
-        self._zerod_data = zerod
-        self._profile0d_data = profil0d
+    @data_source.setter
+    def data_source(self, data_source: MetisDatasource_base):
+        self._data_source = data_source
+        self._flush_variables()
+        self._data_source._notifier.add(self._data_changed)
+        self._data_changed()
 
     @property
     def equilibrium(self):
@@ -111,7 +112,8 @@ class METISModel:
         :return:
         """
         if not quantity in list(self._zerod_data.keys()):
-            raise ValueError("quantity {0}, not in zerod METIS group: {1}".format(quantity, self._zerod_data.keys()))
+            raise ValueError(
+                "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._zerod_data.keys()))
 
         if time is None:
             return self._zerod_data[quantity]
@@ -130,7 +132,8 @@ class METISModel:
 
         if not quantity in list(self._profile0d_data.keys()):
             raise ValueError(
-                "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._profile0d_data.keys()))
+                "quantity {0}, not in zerod METIS group: {1}".format(quantity,
+                                                                     self._profile0d_data.keys()))
 
         if quantity == "xli" and time:
             return self._profile0d_data["xli"][:, 0]
@@ -143,24 +146,6 @@ class METISModel:
             return self._profile0d_data[quantity][:, time_arg]
         else:
             return self._profile0d_data[quantity]
-
-    @property
-    def filepath(self):
-        """
-        Path to the METIS file.
-        :return:
-        """
-        return self._filepath
-
-    @filepath.setter
-    def filepath(self, filepath):
-        """
-        if filepath is changed, the object is reset and data are loaded
-        :param filepath:
-        :return:
-        """
-        self._filepath = filepath
-        self.update_data()
 
     @property
     def time(self):
@@ -181,7 +166,8 @@ class METISModel:
         # check validity of the quantity requested
         if not quantity in list(self._zerod_data.keys()):
             raise ValueError(
-                "{0} passed as quantity, but has to be one of: {1}".format(quantity, self._zerod_data.keys()))
+                "{0} passed as quantity, but has to be one of: {1}".format(quantity,
+                                                                           self._zerod_data.keys()))
 
         # return interpolated values and create interpolator if missing
         try:
@@ -189,7 +175,8 @@ class METISModel:
         except TypeError:
             # construct the right interpolator
             if kind == "cubic" or kind == "linear":
-                self._zerod_interpolator[quantity][kind] = interp1d(self.time, self._zerod_data[quantity], kind=kind)
+                self._zerod_interpolator[quantity][kind] = interp1d(self.time, self._zerod_data[quantity],
+                                                                    kind=kind)
             else:
                 raise ValueError("degree can be only 'linear' or 'cubic' but '{0}' passed.".format(kind))
 
@@ -212,7 +199,8 @@ class METISModel:
         # check validity of the quantity requested
         if not quantity in list(self._profile0d_data.keys()):
             raise ValueError(
-                "quantity {0}, not in zerod METIS group: {1}".format(quantity, self._profile0d_data.keys()))
+                "quantity {0}, not in zerod METIS group: {1}".format(quantity,
+                                                                     self._profile0d_data.keys()))
 
         # prepare free variable and check validity
         if not free_variable:
@@ -259,6 +247,32 @@ class METISModel:
 
         return value
 
+    def interpolator1d(self, quantity, time, kind="cubic", **free_variable):
+        # check validity of the quantity requested
+        if not quantity in list(self._profile0d_data.keys()):
+            raise ValueError(
+                "quantity {0}, not in zerod METIS group: {1}".format(quantity,
+                                                                     self._profile0d_data.keys()))
+
+        # prepare free variable and check validity
+        if not free_variable:
+            free_variable_name = "psin"
+            free_variable_data = np.linspace(0, 1, self._profile_shape, endpoint=True)
+        else:
+            free_variable_name = list(free_variable.keys())[0]
+            free_variable_data = free_variable[free_variable_name]
+
+        if not free_variable_name in list(self._profile0d_data.keys()):
+            raise ValueError(
+                "quantity {0}, not in profil0d METIS group: {1}".format(free_variable_name,
+                                                                        self._profile0d_data.keys()))
+
+        profile = self.profile1d_interpolate(quantity, time, kind=kind, **{free_variable_name: free_variable_data})
+
+        interpolator = Interpolate1DCubic(free_variable_data, profile, extrapolate=True, extrapolation_type="nearest")
+
+        return interpolator
+
     def equilibrium_map2d(self, quantity, time, value_outside_lcfs=0.0, interpolate=True):
         """
         Generated 2d interpolator using EFITEquilibrium.map2d function
@@ -279,7 +293,8 @@ class METISModel:
             values = self.profile1d(quantity, time)
             psin = self.profile1d("psin", time)
 
-        return self._equilibrium.map2d((psin, values), value_outside_lcfs)
+        profile = Interpolate1DCubic(psin, values, extrapolate=True, extrapolation_type="nearest")
+        return self._equilibrium.map2d(profile, value_outside_lcfs)
 
     def equilibrium_map3d(self, quantity, time, value_outside_lcfs=0.0, interpolate=True):
         """
@@ -301,8 +316,8 @@ class METISModel:
             psin = self.profile1d("psin", time)
             values = self.profile1d(quantity, time)
 
-        return self._equilibrium.map3d((psin, values),
-                                       value_outside_lcfs)
+        profile = Interpolate1DCubic(psin, values)
+        return self._equilibrium.map3d(profile, value_outside_lcfs)
 
     def equilibrium_map_vector2d(self, toroidal_quantity=None, poloidal_quantity=None, normal_quantity=None, time=None,
                                  value_outside_lcfs=0.0, interpolate=True):
@@ -357,6 +372,10 @@ class METISModel:
                 normal_values = np.zeros_like(psin)
             else:
                 normal_values = self.profile1d(poloidal_quantity, time)
+
+        profile_toroidal = Interpolate1DCubic(psin, toroidal_values, extrapolate=True, extrapolation_type="nearest")
+        profile_poloidal = Interpolate1DCubic(psin, toroidal_values, extrapolate=True, extrapolation_type="nearest")
+        profile_normal = Interpolate1DCubic(psin, toroidal_values, extrapolate=True, extrapolation_type="nearest")
 
         return self._equilibrium.map_vector2d((psin, toroidal_values), (psin, poloidal_values), (psin, normal_values))
 
@@ -415,7 +434,8 @@ class METISModel:
 
         return self._equilibrium.map_vector3d((psin, toroidal_values), (psin, poloidal_values), (psin, normal_values))
 
-    def create_plasma(self, time, plasma: Plasma = None, interpolate=True, hydrogen_isotope_number=2, t_cold_neutrals=1,
+    def create_plasma(self, time, plasma: Plasma = None, interpolate=False, hydrogen_isotope_number=2,
+                      t_cold_neutrals=1,
                       atomic_data=None, main_impurity=None):
 
         if atomic_data is None:
@@ -439,7 +459,7 @@ class METISModel:
             n_h0_hot = self.profile1d("n0", time)
 
         electron_density = self.equilibrium_map3d("nep", time, interpolate=interpolate)
-        electron_temperature = self.equilibrium_map3d("nep", time, interpolate=interpolate)
+        electron_temperature = self.equilibrium_map3d("tep", time, interpolate=interpolate)
 
         plasma.electron_distribution = Maxwellian(electron_density, electron_temperature, plasma_rotation,
                                                   electron_mass)
@@ -449,11 +469,11 @@ class METISModel:
 
         t_i = self.equilibrium_map3d("tip", time, interpolate=interpolate)
 
-        #todo:uncomment when more distributions of a same species can be put into plasma composition
-        #h0_hot_density = self.equilibrium_map3d("n0", time, interpolate=interpolate)
-        #h0_hot_distribution = Maxwellian(h0_hot_density, t_i, plasma_rotation,
+        # todo:uncomment when more distributions of a same species can be put into plasma composition
+        # h0_hot_density = self.equilibrium_map3d("n0", time, interpolate=interpolate)
+        # h0_hot_distribution = Maxwellian(h0_hot_density, t_i, plasma_rotation,
         #                                 hydrogen_isotope.atomic_weight * atomic_mass)
-        #plasma.composition.add(Species(hydrogen_isotope, 0, h0_hot_distribution))
+        # plasma.composition.add(Species(hydrogen_isotope, 0, h0_hot_distribution))
 
         h0_cold_density = self.equilibrium_map3d("n0m", time, interpolate=interpolate)
         h0_cold_temperature = Constant3D(0)
@@ -495,5 +515,56 @@ class METISModel:
             for charge, dens in balance.items():
                 dist = Maxwellian(dens, t_i, plasma_rotation, main_impurity.atomic_weight * atomic_mass)
                 plasma.composition.add(Species(main_impurity, charge, dist))
+
+        return plasma
+
+    def match_zeff(self, time, plasma: Plasma = None, interpolate=True, element=helium):
+        """
+        Fills plasma with absolutely stripped ions to match zeff simulated by metis. This can be useful when concrete
+        impurity is not known which is not important for some kinds of simulations e.g. bremsstrahlung radiation.
+        Returned plasma profile has zeff equal or higher than metis results.
+
+        :param time: shot time
+        :param plasma: Plasma object to be modified.
+        :param interpolate: Specifies wether used metis profiles should be interpolated. If True Metis profiles are
+        interpolated over time and poloidal flux. If False profiles for nearest simulated time slice are chosen.
+        :param element: Element to fill the plasma with.
+        :return: Plasma object with matched zeff
+        """
+
+        if plasma is None:  # Create instance of Plasma if not passed as argument
+            plasma = self.create_plasma(time=time, interpolate=interpolate)
+
+        psin = self.profile1d("psin", time=time)
+        zeff_metis = self.profile1d("zeff", time=time)
+        zeff_plasma = np.ones_like(zeff_metis)
+
+        for i, v in enumerate(psin):
+            # it seems that psin=1 due to interpolation errors can do problems with finding no charged particles in cherab plasma object.
+            try:
+                zeff_plasma[i] = plasma.z_effective(self.equilibrium.psin_to_r(v), 0, 0)
+            except ValueError:
+                zeff_plasma[i] = plasma.z_effective(self.equilibrium.psin_to_r(v) - 0.001, 0, 0)
+                print(
+                    "Plasma does not contain any ionised species for psi_normalised = {0}, using value for spi_normalised = {1}".format(
+                        v, v - 0.001))
+
+        n_d = self.profile1d("n1p", time=time)
+        n_e = self.profile1d("nep", time=time)
+        t_i = self.equilibrium_map3d("tip", time=time, interpolate=False)
+        n_fill = n_d * (zeff_metis - zeff_plasma) / (element.atomic_number ** 2 - element.atomic_number * zeff_metis)
+
+        # remove negative densities
+        tmp = np.where(n_fill < 0)[0]
+        n_fill[tmp] = 0
+
+        # create 3D interpolator
+        n_fill = self.equilibrium.map3d((psin, n_fill))
+
+        # create plasma species and add it to the plasma
+        fill_distribution = Maxwellian(n_fill, t_i, ConstantVector3D(Vector3D(0, 0, 0)),
+                                       element.atomic_weight * atomic_mass)
+        fill_species = Species(element, element.atomic_number, fill_distribution)
+        plasma.composition.add(fill_species)
 
         return plasma
