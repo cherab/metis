@@ -9,7 +9,7 @@ from cherab.core.utility import RecursiveDict
 from cherab.openadas import OpenADAS
 from cherab.tools.equilibrium.efit import EFITEquilibrium
 from cherab.tools.plasmas.ionisation_balance import from_elementdensity
-from cherab.metis.data_source import MetisDatasource_base
+from cherab.metis.data_source import MetisDataSource_base
 
 from scipy.constants import electron_mass, atomic_mass
 from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, interp1d
@@ -64,6 +64,15 @@ class METISModel:
 
         return argmin
 
+    def _interpolate_psin(self, time):
+
+        psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+        # psi = [0,1], sometimes interpolators overshoot this boundary by and inifinitesimal value
+        psin[np.where(psin < 0)] = 0
+        psin[np.where(psin > 1)] = 1
+
+        return psin
+
     def get_data(self):
         self.get_data()
 
@@ -79,7 +88,7 @@ class METISModel:
         return self._data_source
 
     @data_source.setter
-    def data_source(self, data_source: MetisDatasource_base):
+    def data_source(self, data_source: MetisDataSource_base):
         self._data_source = data_source
         self._flush_variables()
         self._data_source._notifier.add(self._data_changed)
@@ -302,7 +311,7 @@ class METISModel:
 
         # obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
         if interpolate:
-            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+            psin = self._interpolate_psin(time)
             values = self.profile1d_interpolate(quantity, time)
         else:
             values = self.profile1d(quantity, time)
@@ -325,7 +334,7 @@ class METISModel:
 
         # obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
         if interpolate:
-            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+            psin = self._interpolate_psin(time)
             values = self.profile1d_interpolate(quantity, time)
         else:
             psin = self.profile1d("psin", time)
@@ -353,7 +362,7 @@ class METISModel:
 
         # obtain values for interpolation either diectly by taking a time-slice profile or by interpolation
         if interpolate:  # iterpolate psin and values
-            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+            psin = self._interpolate_psin(time)
 
             # pass zeros if not specified
             if toroidal_quantity is None:
@@ -412,7 +421,7 @@ class METISModel:
             time = self.time[0]
 
         if interpolate:  # iterpolate psin and values
-            psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+            psin = self._interpolate_psin(time)
 
             # pass zeros if not specified
             if toroidal_quantity is None:
