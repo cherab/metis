@@ -2,8 +2,12 @@ from cherab.metis import read_hdf5
 import numpy as np
 from cherab.core.utility import Notifier
 
-class MetisDatasource_base:
-
+class MetisDataSource_base:
+    """
+    Base class for METIS data source. This class obtans data from a data source and serves as a data getter for the
+    METISModel class. The reason is ways of storing METIS simulations may vary for different institutes. This Class
+    can be inherited within other cherab modules and the _get_data method is to be implemented to suit specific needs.
+    """
     def __init__(self):
 
         self._notifier = Notifier()
@@ -39,8 +43,10 @@ class MetisDatasource_base:
         self._zerod_data = {}
         self._profile0d_data = {}
 
-class MatlabMetisFile(MetisDatasource_base):
-
+class MatlabMetisFile(MetisDataSource_base):
+    """
+    METIS data source, reading data from metis matlab hdf5 files.
+    """
     def __init__(self, file_path: str = None):
 
         super().__init__()
