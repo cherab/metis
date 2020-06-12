@@ -2,8 +2,7 @@ from raysect.core import Vector3D
 
 from cherab.core import Plasma, Species, Maxwellian
 from cherab.core.atomic.elements import lookup_element, lookup_isotope, helium
-from cherab.core.math import Constant3D
-from cherab.core.math import Interpolate1DCubic
+from cherab.core.math import Constant3D, Interpolate1DCubic, VectorAxisymmetricMapper
 from cherab.core.math.constant import ConstantVector3D
 from cherab.core.utility import RecursiveDict
 from cherab.openadas import OpenADAS
@@ -66,7 +65,7 @@ class METISModel:
 
     def _interpolate_psin(self, time):
 
-        psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"][:, 0])
+        psin = self.profile1d_interpolate("psin", time, xli=self._profile0d_data["xli"])
         # psi = [0,1], sometimes interpolators overshoot this boundary by and inifinitesimal value
         psin[np.where(psin < 0)] = 0
         psin[np.where(psin > 1)] = 1
@@ -250,12 +249,12 @@ class METISModel:
             if not free_variable_name == "xli":  # get time-space profiles into 1D free variable array
                 fv_vector = self._profile0d_data[free_variable_name].flatten()[:, np.newaxis]
             else:  # xli is only 1D array and has to be expanded to fit rest of the interpolation
-                fv_vector = np.repeat(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+                fv_vector = np.repeat(self._profile0d_data["xli"][:, np.newaxis], self._time_shape)[:, np.newaxis]
 
             if not quantity == "xli":  # get time-space profiles into 1D free variable array
                 v_vector = self._profile0d_data[quantity].flatten()
             else:
-                v_vector = np.repeat(self._profile0d_data["xli"][:, 0], self._time_shape)[:, np.newaxis]
+                v_vector = np.repeat(self._profile0d_data["xli"], self._time_shape)[:, np.newaxis]
 
             pnts = np.concatenate((time_vector, fv_vector), axis=1)
             # construct the right interpolator
@@ -539,6 +538,10 @@ class METISModel:
             for charge, dens in balance.items():
                 dist = Maxwellian(dens, t_i, plasma_rotation, main_impurity.atomic_weight * atomic_mass)
                 plasma.composition.add(Species(main_impurity, charge, dist))
+
+        if self.equilibrium.b_field is not None:
+            plasma.b_field = VectorAxisymmetricMapper(self._equilibrium.b_field)
+
 
         return plasma
 
