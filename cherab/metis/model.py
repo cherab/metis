@@ -3,7 +3,6 @@ from raysect.core import Vector3D
 from cherab.core import Plasma, Species, Maxwellian
 from cherab.core.atomic.elements import lookup_element, lookup_isotope, helium
 from cherab.core.math import Constant3D, Interpolate1DCubic, VectorAxisymmetricMapper
-from cherab.core.math.constant import ConstantVector3D
 from cherab.core.utility import RecursiveDict
 from cherab.openadas import OpenADAS
 from cherab.tools.equilibrium.efit import EFITEquilibrium
@@ -589,7 +588,7 @@ class METISModel:
         n_fill = self.equilibrium.map3d((psin, n_fill))
 
         # create plasma species and add it to the plasma
-        fill_distribution = Maxwellian(n_fill, t_i, ConstantVector3D(Vector3D(0, 0, 0)),
+        fill_distribution = Maxwellian(n_fill, t_i, Vector3D(0, 0, 0),
                                        element.atomic_weight * atomic_mass)
         fill_species = Species(element, element.atomic_number, fill_distribution)
         plasma.composition.add(fill_species)
